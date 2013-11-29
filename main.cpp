@@ -101,7 +101,7 @@ char* load_project(const char* path) {
 int compile_file(sourcefile* file) {
 	//Run the configured compiler.
 	string command(COMPILER_BINS[COMPILER]);
-	string sep = " ";
+	const string sep = " ";
 	command += sep;
 	command += file->filename + sep;
 	command += file->includes + sep;
@@ -109,34 +109,41 @@ int compile_file(sourcefile* file) {
 	command += COMPILER_OUTPUT[COMPILER] + file->output + sep;
 	if (file->flags != NULL)
 		command += file->flags->compiler_flags + sep;
-	/*command += " 2> ";
-	command += OUTPUT_NULL[COMPILER];*/
+
 	printf("%s\n", command.c_str());
 	if(!FLAGS.safemode) return system(command.c_str());
 	return 0;
 }
 
 int produce_output(output& file, int operation, build_flags* f) {
-	string command(OPERATIONS[operation]->at(COMPILER));
-	command += " ";
+	string command_toolchain(OPERATIONS[operation]->at(COMPILER) + " @link"); 
+	string command;
+	const string sep = " ";
+	int error = 0;
 	if(operation == OPERATION_LINK || COMPILER == COMPILER_MSVC) {
-		command += file.compiled_files + " ";
-		command += file.extra_files + " ";
-		command += f->linker_flags + " ";
+		command += file.compiled_files + sep;
+		command += file.extra_files + sep;
+		command += f->linker_flags + sep;
 		command += OUTPUT_LINK_OUTPUT[COMPILER];
 		command += file.output_name;
 		command += EXTS[operation]->at(COMPILER);
 	} else {
+		//LIB on linux == ar. 
 		command += file.output_name;
 		command += EXTS[operation]->at(COMPILER);
-		command += " " + file.compiled_files + " ";
-		command += file.extra_files + " ";
-		
+		command += sep + file.compiled_files + sep;
+		command += file.extra_files + sep;
 	}
 	
+	FILE* tmp = fopen("link", "w");
+	fwrite(command.c_str(), sizeof(char), command.size(), tmp);
+	fclose(tmp);
 	
 	printf("%s\n", command.c_str());
-	if (!FLAGS.safemode) return system(command.c_str());
+	if (!FLAGS.safemode) {
+		error = system(command_toolchain.c_str());
+		unlink("link");
+	}
 	return 0;
 
 }
@@ -251,6 +258,10 @@ int step_compile_files(xml_node<>* project, string& compiled_files, sourcefile& 
 		string filename = (f != NULL ? string(f->value(), f->value_size()) :
 			string(child->value(), child->value_size()));
 
+		if (filename.size() == 0) {
+			continue;
+		}
+
 		xml_attribute<>* os = child->first_attribute("os");
 		if (os != NULL) {
 			//Platform specific source.
@@ -329,17 +340,17 @@ void step_add_flags(xml_node<>* project, build_flags& flags) {
 }
 
 int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
-	char* path = getcwd(NULL, 0);
+	char* path = NULL;
 	int error = 0;
 	for (xml_node<> *child = project->first_node("depends");
 		child; child = child->next_sibling("depends")) {
-		string path_str = ".";
+		path = getcwd(NULL, 0);
 		xml_attribute<>* link = child->first_attribute("link");
 		bool do_link = false;
 		if (link != NULL && strcmp(link->value(), "true") == 0) {
 			do_link = true;
 		}
-		path_str += PATH_SEP + string(child->value(), child->value_size());
+		string path_str = "." PATH_SEP + string(child->value(), child->value_size());
 		chdir(path_str.c_str());
 
 		char* root_project = NULL;
