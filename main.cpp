@@ -1,5 +1,6 @@
 #include <cstdio>
 #ifdef _MSC_VER
+#pragma warning(disable: 4996)
 #include <direct.h>
 #else
 #include <unistd.h>
@@ -9,7 +10,6 @@
 #include <cstring>
 #include <string>
 #include <vector>
-
 #include "rapidxml.hpp"
 
 using namespace std;
@@ -18,7 +18,6 @@ using namespace rapidxml;
 #ifdef _MSC_VER
 #define getcwd _getcwd
 #define mkdir _mkdir
-#pragma warning(disable: 4996)
 #define PLATFORM 0
 #else
 #define mkdir(x) mkdir(x, 755)
@@ -26,7 +25,6 @@ using namespace rapidxml;
 #endif
 #define PATH_SEP "/"
 #define DEFAULT_OUTPUT_SUFFIX ".o"
-#define DEFAULT_OUTPUT_DIR "output"
 #define OPERATION_LINK 0
 #define OPERATION_LIB 1
 
@@ -45,15 +43,21 @@ vector<string> COMPILERS { "msvc", "gcc" };
 vector<string> COMPILER_FLAG{ "/", "-" };
 vector<string> OUTPUT_NULL{ "nul", "/dev/null" };
 vector<string>* OPERATIONS[] = { &OUTPUT_LINK, &OUTPUT_LIB };
-vector<string>* EXTS[] = { &OUTPUT_LINK_EXT, &OUTPUT_LIB_EXT };
-string STR_APP = "app";
-string STR_STATIC = "static";
-
+const string STR_APP = "app";
+const string STR_STATIC = "static";
+const string STR_WIN = "win32";
+const string STR_LINUX = "linux";
+const string DEFAULT_OUTPUT_DIR = "output";
+const string EMPTY_STR = "";
+const string PATH_SEP_WIN = "\\";
+const string PATH_SEP_LINUX = "/";
+const string COMMAND_SEP_WIN = "&&";
+const string COMMAND_SEP_LINUX = ";";
 
 struct output {
 	string compiled_files;
 	string extra_files;
-	char* output_name;
+	string output_name;
 };
 
 struct build_flags {
@@ -74,10 +78,64 @@ struct flags {
 	string config;
 };
 
-
-
 static flags FLAGS;
 
+bool endsWith(const string &a, const string &b) {
+
+	if (a.length() >= b.length()) {
+		return (a.compare(a.length() - b.length(), b.length(), b) == 0);
+	}
+	else {
+		return false;
+	}
+}
+
+const string& macro_replace(const string& key) {
+	if (key == "OUTPUT") {
+		return (FLAGS.config.empty() ? DEFAULT_OUTPUT_DIR : FLAGS.config);
+	}
+	else if (key == "SEP") {
+#ifdef _WIN32
+		return PATH_SEP_WIN;
+#endif
+#ifdef __GNUC__
+		return PATH_SEP_LINUX;
+#endif
+	}
+	else if (key == "CSEP") {
+#ifdef _WIN32
+		return COMMAND_SEP_WIN;
+#endif
+#ifdef __GNUC__
+		return COMMAND_SEP_LINUX;
+#endif
+	}
+
+	else return EMPTY_STR;
+}
+
+
+string parse_string(const string &src) {
+	string output;
+	unsigned int size = src.size();
+	output.reserve(size);
+	for (unsigned int i = 0; i < size; i++) {
+		if (i < size - 2 && src[i] == '$' && src[i + 1] == '(') {
+			for (unsigned int j = i + 2; j < size; j++) {
+				if (src[j] == ')') {
+					string macro = src.substr(i + 2, j - i - 2);
+					output += macro_replace(macro);
+					i += j - i;
+					break;
+				}
+			}
+		}
+		else {
+			output += src[i];
+		}
+	}
+	return output;
+}
 //Forward define build_project to allow dependent projects to call it.
 int build_project(xml_node<>* project);
 
@@ -96,6 +154,12 @@ char* load_project(const char* path) {
 	project_data[read] = '\0';
 	fclose(fp);
 	return project_data;
+}
+
+int run_command(const char* cmd) {
+	printf("%s\n", cmd);
+	if (!FLAGS.safemode) return system(cmd);
+	return 0;
 }
 
 int compile_file(sourcefile* file) {
@@ -126,11 +190,9 @@ int produce_output(output& file, int operation, build_flags* f) {
 		command += f->linker_flags + sep;
 		command += OUTPUT_LINK_OUTPUT[COMPILER];
 		command += file.output_name;
-		command += EXTS[operation]->at(COMPILER);
 	} else {
 		//LIB on linux == ar. 
 		command += file.output_name;
-		command += EXTS[operation]->at(COMPILER);
 		command += sep + file.compiled_files + sep;
 		command += file.extra_files + sep;
 	}
@@ -148,20 +210,19 @@ int produce_output(output& file, int operation, build_flags* f) {
 
 }
 
-string get_output_file(xml_node<>* project) {
-	xml_node<>* output = project->first_node("output");
-	string output_str;
+string get_output_file(xml_node<>* output) {
+	string output_str = FLAGS.config.empty() ? DEFAULT_OUTPUT_DIR : FLAGS.config;
 	if (output != NULL) {
 		string output_name(output->value(), output->value_size());
 		xml_attribute<>* output_type = output->first_attribute("type");
 
 		if (output_type != NULL) {
-			char* outval = output_type->value();
-			if (strcmp(outval, "app") == 0) {
-				output_str = output_name + OUTPUT_LINK_EXT[COMPILER];
+			string outval = string(output_type->value(), output_type->value_size());
+			if (outval == STR_APP) {
+				output_str += PATH_SEP + output_name + OUTPUT_LINK_EXT[COMPILER];
 			}
-			else if (strcmp(outval, "static") == 0) {
-				output_str = output_name + OUTPUT_LIB_EXT[COMPILER];
+			else if (outval == STR_STATIC) {
+				output_str += PATH_SEP + output_name + OUTPUT_LIB_EXT[COMPILER];
 			}
 		}
 	}
@@ -215,7 +276,7 @@ void step_build_output(xml_node<>* project, string& compiled_files, build_flags*
 	xml_node<>* output_node = project->first_node("output");
 
 	if (output_node != NULL && compiled_files.length() > 0) {
-		char* output_name = output_node->value();
+		string output_name = get_output_file(output_node);
 		xml_attribute<>* output_type_attr = output_node->first_attribute("type");
 
 		if (output_type_attr != NULL) {
@@ -263,17 +324,17 @@ int step_compile_files(xml_node<>* project, string& compiled_files, sourcefile& 
 		}
 
 		xml_attribute<>* os = child->first_attribute("os");
+		
 		if (os != NULL) {
+			string os_str = string(os->value(), os->value_size());
 			//Platform specific source.
 #ifdef _WIN32
-			if (strcmp(os->value(), "win32") != 0) {
+			if (os_str != STR_WIN)
 				continue;
-			}
 #endif
 #ifdef __GNUC__
-			if(strcmp(os->value(), "linux") != 0) {
+			if (os_str != STR_LINUX)
 				continue;
-			}
 #endif
 		}
 		string output;
@@ -350,11 +411,24 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 		if (link != NULL && strcmp(link->value(), "true") == 0) {
 			do_link = true;
 		}
-		string path_str = "." PATH_SEP + string(child->value(), child->value_size());
-		chdir(path_str.c_str());
 
+		string project = string(child->value(), child->value_size());
+
+		int pos = project.find_last_of('/');
+		if (pos == string::npos) pos = 0;
+		bool is_file = endsWith(project, ".xml");
+		//Is a file, has a path. 
+		string path_str = is_file && pos ? 
+			project.substr(0, pos + 1) : pos ? project : ".";
+		//Just the project file name.
+		string project_file = is_file && pos ?
+			project.substr(pos, project.size()) : is_file ? project : "project.xml";
+
+		//TODO: Prevent stack overflow (project including same project).
+
+		chdir(path_str.c_str());
 		char* root_project = NULL;
-		if ((root_project = load_project("project.xml"))) {
+		if ((root_project = load_project(project_file.c_str()))) {
 			//Root project loaded. Parse xml.
 			xml_document<> doc;
 			try{
@@ -366,7 +440,8 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 			}
 			xml_node<>* p = doc.first_node("project");
 			if (p != NULL) {
-				string output_file = get_output_file(p);
+				xml_node<>* output = p->first_node("output");
+				string output_file = get_output_file(output);
 				if (do_link) dependency_outputs += path_str + PATH_SEP + output_file + " ";
 				FILE* ofile;
 				if ((ofile = fopen(output_file.c_str(), "r")) != NULL) {
@@ -392,28 +467,47 @@ int build_project(xml_node<>* project) {
 	
 	if ((error = step_build_dependencies(project, dependency_outputs)) != 0) return error;
 
+	//Run any project commands, using output dir as root.
+	for (xml_node<>* child = project->first_node("prebuild");
+		child; child = child->next_sibling("prebuild")) {
+		xml_attribute<>* os = child->first_attribute("os");
+		if (os != NULL) {
+			string os_str = string(os->value(), os->value_size());
+			//Platform specific source.
+#ifdef _WIN32
+			if (os_str != STR_WIN)
+				continue;
+#endif
+#ifdef __GNUC__
+			if (os_str != STR_LINUX)
+				continue;
+#endif
+		}
+		string parsed_command = parse_string(string(child->value(), child->value_size()));
+
+		if ((error = run_command(parsed_command.c_str()) != 0))
+			return error;
+	}
 
 	sourcefile src_file;
 	build_flags flags;
 	string compiled_files = "";
 
 	src_file.flags = &flags;
-	//GCC specific transforms. 
 	//Includes: Split by ; then produce separate include flags.
 	for (xml_node<> *child = project->first_node("include");
 		child; child = child->next_sibling("include")) {
 		xml_attribute<>* os = child->first_attribute("os");
 		if (os != NULL) {
+			string os_str = string(os->value(), os->value_size());
 			//Platform specific source.
 #ifdef _WIN32
-			if (strcmp(os->value(), "win32") != 0) {
+			if (os_str != STR_WIN)
 				continue;
-			}
 #endif
 #ifdef __GNUC__
-			if(strcmp(os->value(), "linux") != 0) {
+			if (os_str != STR_LINUX)
 				continue;
-			}
 #endif
 		}
 		src_file.includes += build_compiler_string(child, 'I', 1);
@@ -498,8 +592,6 @@ bad_format:
 	else {
 		return 2;
 	}
-
-
 
 	return 0;
 }
