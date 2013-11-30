@@ -54,6 +54,21 @@ const string PATH_SEP_LINUX = "/";
 const string COMMAND_SEP_WIN = "&&";
 const string COMMAND_SEP_LINUX = ";";
 
+#ifdef _WIN32
+#define CHECK_OS_STR STR_WIN
+#endif
+
+#ifdef __GNUC__
+#define CHECK_OS_STR STR_LINUX
+#endif
+
+#define CHECK_OS xml_attribute<>* os = child->first_attribute("os"); \
+if (os != NULL) { \
+	string os_str = string(os->value(), os->value_size()); \
+	if (os_str != CHECK_OS_STR) \
+		continue; \
+} 
+
 struct output {
 	string compiled_files;
 	string extra_files;
@@ -284,20 +299,19 @@ void step_build_output(xml_node<>* project, string& compiled_files, build_flags*
 			int operation = -1;
 			output f_output;
 
-			if (output_type == STR_APP) {
-				for (xml_node<> *child = project->first_node("link");
-					child; child = child->next_sibling("link")) {
-					xml_attribute<>* compiler = child->first_attribute("compiler");
-					if (compiler != NULL) {
-						int target_compiler = check_compiler_str(compiler->value());
-						if (target_compiler == COMPILER) 
-							f_output.extra_files = build_compiler_string(child, '\0', 0, 0);
-					}
+			for (xml_node<> *child = project->first_node("link");
+				child; child = child->next_sibling("link")) {
+				xml_attribute<>* compiler = child->first_attribute("compiler");
+				if (compiler != NULL) {
+					int target_compiler = check_compiler_str(compiler->value());
+					if (target_compiler == COMPILER)
+						f_output.extra_files = parse_string(build_compiler_string(child, '\0', 0, 0));
 				}
-				operation = OPERATION_LINK;
 			}
-			else
-			if (output_type == STR_STATIC) operation = OPERATION_LIB;
+			if (output_type == STR_APP) 
+				operation = OPERATION_LINK;
+			else if (output_type == STR_STATIC) 
+				operation = OPERATION_LIB;
 
 			
 			f_output.compiled_files = compiled_files;
@@ -322,21 +336,9 @@ int step_compile_files(xml_node<>* project, string& compiled_files, sourcefile& 
 		if (filename.size() == 0) {
 			continue;
 		}
-
-		xml_attribute<>* os = child->first_attribute("os");
 		
-		if (os != NULL) {
-			string os_str = string(os->value(), os->value_size());
-			//Platform specific source.
-#ifdef _WIN32
-			if (os_str != STR_WIN)
-				continue;
-#endif
-#ifdef __GNUC__
-			if (os_str != STR_LINUX)
-				continue;
-#endif
-		}
+		CHECK_OS
+
 		string output;
 		if (out != NULL) output = filename;
 		else {
@@ -405,6 +407,9 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 	int error = 0;
 	for (xml_node<> *child = project->first_node("depends");
 		child; child = child->next_sibling("depends")) {
+		
+		CHECK_OS
+
 		path = getcwd(NULL, 0);
 		xml_attribute<>* link = child->first_attribute("link");
 		bool do_link = false;
@@ -419,7 +424,7 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 		bool is_file = endsWith(project, ".xml");
 		//Is a file, has a path. 
 		string path_str = is_file && pos ? 
-			project.substr(0, pos + 1) : pos ? project : ".";
+			project.substr(0, pos + 1) : project;
 		//Just the project file name.
 		string project_file = is_file && pos ?
 			project.substr(pos, project.size()) : is_file ? project : "project.xml";
@@ -470,19 +475,8 @@ int build_project(xml_node<>* project) {
 	//Run any project commands, using output dir as root.
 	for (xml_node<>* child = project->first_node("prebuild");
 		child; child = child->next_sibling("prebuild")) {
-		xml_attribute<>* os = child->first_attribute("os");
-		if (os != NULL) {
-			string os_str = string(os->value(), os->value_size());
-			//Platform specific source.
-#ifdef _WIN32
-			if (os_str != STR_WIN)
-				continue;
-#endif
-#ifdef __GNUC__
-			if (os_str != STR_LINUX)
-				continue;
-#endif
-		}
+		CHECK_OS
+
 		string parsed_command = parse_string(string(child->value(), child->value_size()));
 
 		if ((error = run_command(parsed_command.c_str()) != 0))
@@ -497,19 +491,8 @@ int build_project(xml_node<>* project) {
 	//Includes: Split by ; then produce separate include flags.
 	for (xml_node<> *child = project->first_node("include");
 		child; child = child->next_sibling("include")) {
-		xml_attribute<>* os = child->first_attribute("os");
-		if (os != NULL) {
-			string os_str = string(os->value(), os->value_size());
-			//Platform specific source.
-#ifdef _WIN32
-			if (os_str != STR_WIN)
-				continue;
-#endif
-#ifdef __GNUC__
-			if (os_str != STR_LINUX)
-				continue;
-#endif
-		}
+
+		CHECK_OS
 		src_file.includes += build_compiler_string(child, 'I', 1);
 	
 	}
