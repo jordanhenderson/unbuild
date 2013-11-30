@@ -132,7 +132,7 @@ const string& macro_replace(const string& key) {
 
 string parse_string(const string &src) {
 	string output;
-	unsigned int size = src.size();
+	size_t size = src.size();
 	output.reserve(size);
 	for (unsigned int i = 0; i < size; i++) {
 		if (i < size - 2 && src[i] == '$' && src[i + 1] == '(') {
@@ -245,18 +245,18 @@ string get_output_file(xml_node<>* output) {
 }
 
 string make_output_filename(string& immdir, string& filename) {
-	int spos = filename.find_last_of('/');
+	size_t spos = filename.find_last_of('/');
 	if (spos == string::npos) spos = 0;
 	else spos++;
 	return immdir + PATH_SEP + filename.substr(spos, filename.find_last_of('.')) + DEFAULT_OUTPUT_SUFFIX;
 }
 
 string build_compiler_string(xml_node<>* node, char prefix='\0', int escape=0, int useflag=1) {
-	int pos = 0;
-	int size = node->value_size();
+	size_t pos = 0;
+	size_t size = node->value_size();
 	char* v = node->value();
 	string built;
-	for (int i = 0; i < size; i++) {
+	for (size_t i = 0; i < size; i++) {
 		char c = *(v + i);
 		if (i == size - 1) {
 			c = ';';
@@ -419,7 +419,7 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 
 		string project = string(child->value(), child->value_size());
 
-		int pos = project.find_last_of('/');
+		size_t pos = project.find_last_of('/');
 		if (pos == string::npos) pos = 0;
 		bool is_file = endsWith(project, ".xml");
 		//Is a file, has a path. 
