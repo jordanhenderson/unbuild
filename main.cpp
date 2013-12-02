@@ -53,6 +53,7 @@ const string PATH_SEP_WIN = "\\";
 const string PATH_SEP_LINUX = "/";
 const string COMMAND_SEP_WIN = "&&";
 const string COMMAND_SEP_LINUX = ";";
+const string DEFAULT_ARCH = "32";
 
 #ifdef _WIN32
 #define CHECK_OS_STR STR_WIN
@@ -91,6 +92,7 @@ struct sourcefile {
 struct flags {
 	int safemode = 0;
 	string config;
+	string arch;
 };
 
 static flags FLAGS;
@@ -124,6 +126,9 @@ const string& macro_replace(const string& key) {
 #ifdef __GNUC__
 		return COMMAND_SEP_LINUX;
 #endif
+	}
+	else if (key == "ARCH") {
+		return (FLAGS.arch.empty() ? DEFAULT_ARCH : FLAGS.arch);
 	}
 
 	else return EMPTY_STR;
@@ -391,12 +396,12 @@ void step_add_flags(xml_node<>* project, build_flags& flags) {
 			//Compiler specific flags.
 			int target_compiler = check_compiler_str(compiler->value());
 			if (target_compiler == COMPILER) {
-				*target_flags += build_compiler_string(child, prefix, quote);
+				*target_flags += parse_string(build_compiler_string(child, prefix, quote));
 			}
 		}
 		else {
 			//Global flags
-			*target_flags += build_compiler_string(child, prefix, quote);
+			*target_flags += parse_string(build_compiler_string(child, prefix, quote));
 		}
 	}
 
@@ -529,6 +534,9 @@ bad_format:
 					break;
 				case 'c':
 					FLAGS.config = string(arg + 2);
+					break;
+				case 'm':
+					FLAGS.arch = string(arg + 2);
 					break;
 				default:
 					goto bad_format;
