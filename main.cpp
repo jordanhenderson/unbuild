@@ -22,7 +22,7 @@ using namespace rapidxml;
 #define stat _stat
 #define PLATFORM 0
 #else
-#define mkdir(x) mkdir(x, 755)
+#define mkdir(x) mkdir(x, 0755)
 #define PLATFORM 1
 #endif
 #define PATH_SEP "/"
