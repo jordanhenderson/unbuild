@@ -2,9 +2,10 @@
 #ifdef _MSC_VER
 #pragma warning(disable: 4996)
 #include <direct.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #else
 #include <unistd.h>
-#include <sys/stat.h>
 #endif
 #include <stdlib.h>
 #include <cstring>
@@ -18,6 +19,7 @@ using namespace rapidxml;
 #ifdef _MSC_VER
 #define getcwd _getcwd
 #define mkdir _mkdir
+#define stat _stat
 #define PLATFORM 0
 #else
 #define mkdir(x) mkdir(x, 755)
@@ -354,11 +356,19 @@ int step_compile_files(xml_node<>* project, string& compiled_files, sourcefile& 
 
 		src_file.filename = filename;
 		src_file.output = output;
-		if ((error = compile_file(&src_file)) != 0) {
-			return error; //Abort compilation.
-		}
+		
+		//Check if output file exists, and is last modified before the input.
+		struct stat s_input, s_output;
+		if(stat(filename.c_str(), &s_input) < 0)
+			return error; //Could not stat input file.
+		
+        if(stat(output.c_str(), &s_output) < 0 || s_output.st_mtime < s_input.st_mtime) {
+            if ((error = compile_file(&src_file)) != 0) {
+                return error; //Abort compilation.
+            }
+        }
+        compiled_files += output + " ";
 
-		compiled_files += output + " ";
 	}
 	return error;
 }
