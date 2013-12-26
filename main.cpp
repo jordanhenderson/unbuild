@@ -186,14 +186,24 @@ int run_command(const char* cmd) {
 
 int compile_file(sourcefile* file) {
 	//Run the configured compiler.
-	string command(COMPILER_BINS[COMPILER]);
+	string command;
+	string* filename = &file->filename;
+	int asm_win = 0;
+	if(COMPILER == COMPILER_MSVC && (endsWith(*filename, ".asm") || endsWith(*filename, ".s"))) {
+		command = "ml";
+		if(FLAGS.arch == "64") command += "64";
+		asm_win = 1;
+	} else {
+		command = COMPILER_BINS[COMPILER];
+	}
 	const string sep = " ";
-	command += sep;
-	command += file->filename + sep;
-	command += file->includes + sep;
-	command += COMPILER_NOLINK[COMPILER] + sep;
+	command += sep;	
 	command += COMPILER_OUTPUT[COMPILER] + file->output + sep;
-	if (file->flags != NULL)
+	command += COMPILER_NOLINK[COMPILER] + sep;
+	command += *filename + sep;
+	command += file->includes + sep;
+	
+	if (!asm_win && file->flags != NULL)
 		command += file->flags->compiler_flags + sep;
 
 	printf("%s\n", command.c_str());
@@ -345,6 +355,13 @@ int step_compile_files(xml_node<>* project, string& compiled_files, sourcefile& 
 		}
 		
 		CHECK_OS
+		
+		xml_attribute<>* arch = child->first_attribute("arch");
+		if(arch != NULL) {
+			string arch_str(arch->value(), arch->value_size());
+			if(arch_str != (FLAGS.arch.empty() ? DEFAULT_ARCH : FLAGS.arch)) 
+				continue;
+		}
 
 		string output;
 		if (out != NULL) output = filename;
