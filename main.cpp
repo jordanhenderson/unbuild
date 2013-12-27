@@ -2,11 +2,11 @@
 #ifdef _MSC_VER
 #pragma warning(disable: 4996)
 #include <direct.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #else
 #include <unistd.h>
 #endif
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <cstring>
 #include <string>
