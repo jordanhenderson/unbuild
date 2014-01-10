@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include "rapidxml.hpp"
 
@@ -81,6 +82,7 @@ struct output {
 struct build_flags {
 	string compiler_flags;
 	string linker_flags;
+	unordered_map<string, string> ext_flags;
 };
 
 
@@ -108,6 +110,36 @@ bool endsWith(const string &a, const string &b) {
 		return false;
 	}
 }
+
+template < class T >
+void tokenize(const std::string& str, T& tokens,
+	const std::string& delimiters = " ", bool trimEmpty = false)
+{
+	typedef T Base; typedef typename Base::value_type VType; typedef typename VType::size_type SType;
+	std::string::size_type pos, lastPos = 0;
+	while (true)
+	{
+		pos = str.find_first_of(delimiters, lastPos);
+		if (pos == std::string::npos)
+		{
+			pos = str.length();
+
+			if (pos != lastPos || !trimEmpty)
+				tokens.push_back(VType(str.data() + lastPos,
+				(SType)pos - lastPos));
+
+			break;
+		}
+		else
+		{
+			if (pos != lastPos || !trimEmpty)
+				tokens.push_back(VType(str.data() + lastPos,
+				(SType)pos - lastPos));
+		}
+
+		lastPos = pos + 1;
+	}
+};
 
 const string& macro_replace(const string& key) {
 	if (key == "OUTPUT") {
@@ -203,8 +235,16 @@ int compile_file(sourcefile* file) {
 	command += *filename + sep;
 	command += file->includes + sep;
 	
-	if (!asm_win && file->flags != NULL)
+	if (!asm_win && file->flags != NULL) {
 		command += file->flags->compiler_flags + sep;
+		for(auto kv : file->flags->ext_flags) {
+			if(endsWith(*filename, "." + kv.first)) {
+				command += kv.second + sep;
+				break;
+			}
+		}
+	}
+	
 
 	printf("%s\n", command.c_str());
 	if(!FLAGS.safemode) return system(command.c_str());
@@ -390,22 +430,38 @@ int step_compile_files(xml_node<>* project, string& compiled_files, sourcefile& 
 	return error;
 }
 
+void add_flags(build_flags& flags, xml_node<>* child, char prefix, int quote) {
+	string* target_flags = &flags.compiler_flags;
+	xml_attribute<>* step = child->first_attribute("step");
+	
+	if (step != NULL && strcmp("link", step->value()) == 0) 
+		target_flags = &flags.linker_flags;
+	
+	xml_attribute<>* ext = child->first_attribute("ext");
+	if(ext != NULL) {
+		string ext_str = string(ext->value(), ext->value_size());
+		string flag_str = parse_string(build_compiler_string(child, prefix, quote));
+		vector<string> exts;
+		tokenize(ext_str, exts, ";", true);
+		for(auto ext: exts) {
+			flags.ext_flags.insert(make_pair(ext, flag_str)); 
+		}
+		
+	} else 
+		*target_flags += parse_string(build_compiler_string(child, prefix, quote));
+}
+
 void step_add_flags(xml_node<>* project, build_flags& flags) {
 	//Add flags.
 	for (xml_node<> *child = project->first_node("flags");
 		child; child = child->next_sibling("flags")) {
 		xml_attribute<>* compiler = child->first_attribute("compiler");
 		xml_attribute<>* config = child->first_attribute("config");
-		xml_attribute<>* step = child->first_attribute("step");
-		string* target_flags = &flags.compiler_flags;
+		
 		if (config != NULL) {
 			if (FLAGS.config != string(config->value(), config->value_size())) {
 				break; //Not matching config, ignore flags.
 			}
-		}
-
-		if (step != NULL && strcmp("link", step->value()) == 0) {
-			target_flags = &flags.linker_flags;
 		}
 
 		xml_attribute<>* type = child->first_attribute("type");
@@ -423,12 +479,12 @@ void step_add_flags(xml_node<>* project, build_flags& flags) {
 			//Compiler specific flags.
 			int target_compiler = check_compiler_str(compiler->value());
 			if (target_compiler == COMPILER) {
-				*target_flags += parse_string(build_compiler_string(child, prefix, quote));
+				add_flags(flags, child, prefix, quote);
 			}
 		}
 		else {
 			//Global flags
-			*target_flags += parse_string(build_compiler_string(child, prefix, quote));
+			add_flags(flags, child, prefix, quote);
 		}
 	}
 
