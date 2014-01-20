@@ -30,10 +30,10 @@ using namespace rapidxml;
 #define DEFAULT_OUTPUT_SUFFIX ".o"
 #define OPERATION_LINK 0
 #define OPERATION_LIB 1
-
-static int COMPILER = -1;
 #define COMPILER_MSVC 0
 #define COMPILER_GCC 1
+
+static int COMPILER = -1;
 vector<string> COMPILER_BINS { "cl", "gcc" };
 vector<string> COMPILER_NOLINK { "/c", "-c" };
 vector<string> OUTPUT_LINK { "link", "gcc" };
@@ -46,11 +46,11 @@ vector<string> COMPILERS { "msvc", "gcc" };
 vector<string> COMPILER_FLAG{ "/", "-" };
 vector<string> OUTPUT_NULL{ "nul", "/dev/null" };
 vector<string>* OPERATIONS[] = { &OUTPUT_LINK, &OUTPUT_LIB };
-const string STR_APP = "app";
-const string STR_STATIC = "static";
 const string STR_WIN = "win32";
 const string STR_LINUX = "linux";
 const string DEFAULT_OUTPUT_DIR = "output";
+const string STR_APP = "app";
+const string STR_STATIC = "static";
 const string EMPTY_STR = "";
 const string PATH_SEP_WIN = "\\";
 const string PATH_SEP_LINUX = "/";
@@ -65,13 +65,6 @@ const string DEFAULT_ARCH = "32";
 #ifdef __GNUC__
 #define CHECK_OS_STR STR_LINUX
 #endif
-
-#define CHECK_OS xml_attribute<>* os = child->first_attribute("os"); \
-if (os != NULL) { \
-	string os_str = string(os->value(), os->value_size()); \
-	if (os_str != CHECK_OS_STR) \
-		continue; \
-} 
 
 struct output {
 	string compiled_files;
@@ -102,20 +95,25 @@ struct flags {
 static flags FLAGS;
 
 bool endsWith(const string &a, const string &b) {
-
 	if (a.length() >= b.length()) {
 		return (a.compare(a.length() - b.length(), b.length(), b) == 0);
 	}
-	else {
-		return false;
-	}
+	else return false;
 }
 
+/**
+ * @brief Tokenize a string into a container, tokens by the provided delimiter.
+ * @param str the string to tokenize
+ * @param tokens the output container
+ * @param delimiters the delimiters on which to tokenize
+ * @param trimEmpty keep empty tokens
+ */
 template < class T >
 void tokenize(const std::string& str, T& tokens,
 	const std::string& delimiters = " ", bool trimEmpty = false)
 {
-	typedef T Base; typedef typename Base::value_type VType; typedef typename VType::size_type SType;
+	typedef T Base; typedef typename Base::value_type VType;
+	typedef typename VType::size_type SType;
 	std::string::size_type pos, lastPos = 0;
 	while (true)
 	{
@@ -139,8 +137,13 @@ void tokenize(const std::string& str, T& tokens,
 
 		lastPos = pos + 1;
 	}
-};
+}
 
+/**
+ * @brief macro_replace expands a $() macro.
+ * @param key the key of the $(...) macro
+ * @return the expanded macro.
+ */
 const string& macro_replace(const string& key) {
 	if (key == "OUTPUT") {
 		return (FLAGS.config.empty() ? DEFAULT_OUTPUT_DIR : FLAGS.config);
@@ -169,14 +172,23 @@ const string& macro_replace(const string& key) {
 }
 
 
+/**
+ * @brief parse_string identifies and replaces $() macros with the appropriate
+ * value, returning the expanded form. No recursive macros, simple substituion
+ * supported only.
+ * @param src
+ * @return the expanded string, with $() macros replaced with appropriate values.
+ */
 string parse_string(const string &src) {
 	string output;
 	size_t size = src.size();
 	output.reserve(size);
+	//Iterate over every character, looking for $()
 	for (unsigned int i = 0; i < size; i++) {
 		if (i < size - 2 && src[i] == '$' && src[i + 1] == '(') {
 			for (unsigned int j = i + 2; j < size; j++) {
 				if (src[j] == ')') {
+					//Found a macro, push the expanded macro to the output string.
 					string macro = src.substr(i + 2, j - i - 2);
 					output += macro_replace(macro);
 					i += j - i;
@@ -184,27 +196,47 @@ string parse_string(const string &src) {
 				}
 			}
 		}
-		else {
-			output += src[i];
-		}
+		else output += src[i];
 	}
 	return output;
 }
-//Forward define build_project to allow dependent projects to call it.
-int build_project(xml_node<>* project);
 
+/**
+ * @brief check_os compares the current host os with os= values
+ * @param child the xml node containing the os attribute
+ * @return 1 if the os attribute matches, 0 otherwise.
+ */
+int check_os(xml_node<>* child) {
+	xml_attribute<>* os = child->first_attribute("os"); 
+	if (os != NULL) { 
+		string os_str = string(os->value(), os->value_size()); 
+		if (os_str != CHECK_OS_STR) 
+			return 0;
+	}
+	return 1;
+}
+
+/**
+ * @brief load_project opens the provided path, reading the project data
+ * into a buffer.
+ * @param path the project xml path.
+ * @return the loaded file.
+ */
 char* load_project(const char* path) {
+	int sz = 0;
+	char* project_data = NULL;
 	FILE* fp = NULL;
+	size_t read = 0;
 	if (!(fp = fopen(path, "r"))) {
 		fprintf(stderr, "Error: Could not open project.xml.");
 		return NULL;
 	}
 
 	fseek(fp, 0L, SEEK_END);
-	int sz = ftell(fp);
+	sz = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
-	char* project_data = new char[sz + 1];
-	size_t read = fread(project_data, sizeof(char), sz, fp);
+	project_data = new char[sz + 1];
+	read = fread(project_data, sizeof(char), sz, fp);
 	project_data[read] = '\0';
 	fclose(fp);
 	return project_data;
@@ -245,7 +277,6 @@ int compile_file(sourcefile* file) {
 		}
 	}
 	
-
 	printf("%s\n", command.c_str());
 	if(!FLAGS.safemode) return system(command.c_str());
 	return 0;
@@ -394,7 +425,8 @@ int step_compile_files(xml_node<>* project, string& compiled_files, sourcefile& 
 			continue;
 		}
 		
-		CHECK_OS
+		if(!check_os(child))
+			continue;
 		
 		xml_attribute<>* arch = child->first_attribute("arch");
 		if(arch != NULL) {
@@ -416,9 +448,11 @@ int step_compile_files(xml_node<>* project, string& compiled_files, sourcefile& 
 		
 		//Check if output file exists, and is last modified before the input.
 		struct stat s_input, s_output;
-		if(stat(filename.c_str(), &s_input) < 0)
-			return error; //Could not stat input file.
-		
+		if(stat(filename.c_str(), &s_input) < 0) {
+			printf("Error: %s could not be opened.\n", filename.c_str());
+			return 1; //Could not stat input file.
+		}
+
         if(stat(output.c_str(), &s_output) < 0 || s_output.st_mtime < s_input.st_mtime) {
             if ((error = compile_file(&src_file)) != 0) {
                 return error; //Abort compilation.
@@ -487,8 +521,10 @@ void step_add_flags(xml_node<>* project, build_flags& flags) {
 			add_flags(flags, child, prefix, quote);
 		}
 	}
-
 }
+
+//Forward define build_project to allow dependent projects to call it.
+int build_project(xml_node<>* project);
 
 int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 	char* path = NULL;
@@ -496,7 +532,8 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 	for (xml_node<> *child = project->first_node("depends");
 		child; child = child->next_sibling("depends")) {
 		
-		CHECK_OS
+		if(!check_os(child))
+			continue;
 
 		path = getcwd(NULL, 0);
 		xml_attribute<>* link = child->first_attribute("link");
@@ -518,7 +555,6 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 			project.substr(pos, project.size()) : is_file ? project : "project.xml";
 
 		//TODO: Prevent stack overflow (project including same project).
-
 		chdir(path_str.c_str());
 		char* root_project = NULL;
 		if ((root_project = load_project(project_file.c_str()))) {
@@ -535,6 +571,7 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 			if (p != NULL) {
 				xml_node<>* output = p->first_node("output");
 				string output_file = get_output_file(output);
+				//If dependency should be linked, add it to the dependency outputs.
 				if (do_link) dependency_outputs += path_str + PATH_SEP + output_file + " ";
 				FILE* ofile;
 				if ((ofile = fopen(output_file.c_str(), "r")) != NULL) {
@@ -543,6 +580,7 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 					if ((error = build_project(p)) != 0)
 						return error;
 			}
+			delete[] root_project;
 		}
 		else {
 			return 1;
@@ -553,17 +591,19 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 	return error;
 }
 
+
+
 int build_project(xml_node<>* project) {
 	string dependency_outputs;
 	int error = 0;
-	//TODO: Build dependent projects recursively.
-	
+
 	if ((error = step_build_dependencies(project, dependency_outputs)) != 0) return error;
 
-	//Run any project commands, using output dir as root.
+	//Run any prebuild commands before commencing the build.
 	for (xml_node<>* child = project->first_node("prebuild");
 		child; child = child->next_sibling("prebuild")) {
-		CHECK_OS
+		if(!check_os(child))
+			continue;
 
 		string parsed_command = parse_string(string(child->value(), child->value_size()));
 
@@ -580,7 +620,9 @@ int build_project(xml_node<>* project) {
 	for (xml_node<> *child = project->first_node("include");
 		child; child = child->next_sibling("include")) {
 
-		CHECK_OS
+		if(!check_os(child))
+			continue;
+
 		src_file.includes += build_compiler_string(child, 'I', 1);
 	
 	}
@@ -592,13 +634,14 @@ int build_project(xml_node<>* project) {
 	compiled_files += dependency_outputs;
 	step_build_output(project, compiled_files, &flags);
 
+
+
 	return error;
 
 }
 
 int main(int argc, char** argv) {
 	const char* path = NULL;
-	FILE* project = NULL;
 	if (argc == 1) {
 bad_format:
 		fprintf(stderr, "Usage: unbuild compiler [path [options]]");
@@ -662,6 +705,7 @@ bad_format:
 		if (p != NULL) {
 			build_project(p);
 		}
+		delete[] root_project;
 	}
 	else {
 		return 2;
