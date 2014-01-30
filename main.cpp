@@ -325,7 +325,7 @@ int produce_output(output& file, int operation, build_flags* f) {
 		error = system(command_toolchain.c_str());
 		unlink("link");
 #else
-		system((command_toolchain + command).c_str());
+		system((command_toolchain + sep + command).c_str());
 #endif
 	}
 	return 0;
