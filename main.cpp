@@ -513,9 +513,11 @@ void step_add_flags(xml_node<>* project, build_flags& flags) {
 		
 		if (config != NULL) {
 			if (FLAGS.config != string(config->value(), config->value_size())) {
-				break; //Not matching config, ignore flags.
+				continue; //Not matching config, ignore flags.
 			}
 		}
+		
+		if(!check_os(child)) continue;
 
 		xml_attribute<>* type = child->first_attribute("type");
 		char prefix = '\0';
@@ -527,18 +529,17 @@ void step_add_flags(xml_node<>* project, build_flags& flags) {
 				quote = 1;
 			}
 		}
-		//Config matches.
+	
 		if (compiler != NULL) {
 			//Compiler specific flags.
 			int target_compiler = check_compiler_str(compiler->value());
-			if (target_compiler == COMPILER) {
-				add_flags(flags, child, prefix, quote);
+			if (target_compiler != COMPILER) {
+				continue;
 			}
 		}
-		else {
-			//Global flags
-			add_flags(flags, child, prefix, quote);
-		}
+		
+		//All checks passed. Add the flag.
+		add_flags(flags, child, prefix, quote);
 	}
 }
 
