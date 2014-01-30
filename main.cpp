@@ -48,6 +48,7 @@ vector<string> OUTPUT_NULL{ "nul", "/dev/null" };
 vector<string>* OPERATIONS[] = { &OUTPUT_LINK, &OUTPUT_LIB };
 const string STR_WIN = "win32";
 const string STR_LINUX = "linux";
+const string STR_APPLE = "osx";
 const string DEFAULT_OUTPUT_DIR = "output";
 const string STR_APP = "app";
 const string STR_STATIC = "static";
@@ -62,9 +63,15 @@ const string DEFAULT_ARCH = "32";
 #define CHECK_OS_STR STR_WIN
 #endif
 
+#ifdef __APPLE__
+#define CHECK_OS_STR STR_APPLE
+#define NO_RESPONSE_FILE 1
+#else
 #ifdef __GNUC__
 #define CHECK_OS_STR STR_LINUX
 #endif
+#endif
+
 
 struct output {
 	string compiled_files;
@@ -283,7 +290,10 @@ int compile_file(sourcefile* file) {
 }
 
 int produce_output(output& file, int operation, build_flags* f) {
-	string command_toolchain(OPERATIONS[operation]->at(COMPILER) + " @link"); 
+	string command_toolchain(OPERATIONS[operation]->at(COMPILER)); 
+#ifndef NO_RESPONSE_FILE
+	command_toolchain += " @link";
+#endif
 	string command;
 	const string sep = " ";
 	int error = 0;
@@ -299,15 +309,20 @@ int produce_output(output& file, int operation, build_flags* f) {
 		command += sep + file.compiled_files + sep;
 		command += file.extra_files + sep;
 	}
-	
+#ifndef NO_RESPONSE_FILE
 	FILE* tmp = fopen("link", "w");
 	fwrite(command.c_str(), sizeof(char), command.size(), tmp);
 	fclose(tmp);
+#endif
 	
 	printf("%s\n", command.c_str());
 	if (!FLAGS.safemode) {
+#ifndef NO_RESPONSE_FILE
 		error = system(command_toolchain.c_str());
 		unlink("link");
+#else
+		system((command_toolchain + command).c_str());
+#endif
 	}
 	return 0;
 
