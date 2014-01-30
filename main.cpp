@@ -274,7 +274,11 @@ int compile_file(sourcefile* file) {
 	command += *filename + sep;
 	command += file->includes + sep;
 	
-	if (!asm_win && file->flags != NULL) {
+	//Don't apply compilation flags to asm files under windows.
+	if (!asm_win) {
+		if(COMPILER == COMPILER_GCC && !FLAGS.arch.empty()) {
+			command += "-m" + FLAGS.arch + sep;
+		}
 		command += file->flags->compiler_flags + sep;
 		for(auto kv : file->flags->ext_flags) {
 			if(endsWith(*filename, "." + kv.first)) {
@@ -425,7 +429,7 @@ void step_build_output(xml_node<>* project, string& compiled_files, build_flags*
 	}
 }
 
-int step_compile_files(xml_node<>* project, string& compiled_files, sourcefile& src_file) {
+int step_compile_files(xml_node<>* project, string& compiled_files, sourcefile& base_file) {
 	//Process source files.
 	int error = 0;
 	for (xml_node<> *child = project->first_node("source");
@@ -458,8 +462,8 @@ int step_compile_files(xml_node<>* project, string& compiled_files, sourcefile& 
 			output = make_output_filename(immdir, filename);
 		}
 
-		src_file.filename = filename;
-		src_file.output = output;
+		base_file.filename = filename;
+		base_file.output = output;
 		
 		//Check if output file exists, and is last modified before the input.
 		struct stat s_input, s_output;
@@ -469,7 +473,7 @@ int step_compile_files(xml_node<>* project, string& compiled_files, sourcefile& 
 		}
 
         if(stat(output.c_str(), &s_output) < 0 || s_output.st_mtime < s_input.st_mtime) {
-            if ((error = compile_file(&src_file)) != 0) {
+            if ((error = compile_file(&base_file)) != 0) {
                 return error; //Abort compilation.
             }
         }
@@ -626,11 +630,11 @@ int build_project(xml_node<>* project) {
 			return error;
 	}
 
-	sourcefile src_file;
+	sourcefile base_file;
 	build_flags flags;
 	string compiled_files = "";
 
-	src_file.flags = &flags;
+	base_file.flags = &flags;
 	//Includes: Split by ; then produce separate include flags.
 	for (xml_node<> *child = project->first_node("include");
 		child; child = child->next_sibling("include")) {
@@ -638,21 +642,18 @@ int build_project(xml_node<>* project) {
 		if(!check_os(child))
 			continue;
 
-		src_file.includes += build_compiler_string(child, 'I', 1);
+		base_file.includes += build_compiler_string(child, 'I', 1);
 	
 	}
 
 	step_add_flags(project, flags);
 
-	if ((error = step_compile_files(project, compiled_files, src_file) != 0)) return error;
+	if ((error = step_compile_files(project, compiled_files, base_file) != 0)) return error;
 
 	compiled_files += dependency_outputs;
 	step_build_output(project, compiled_files, &flags);
-
-
-
+	
 	return error;
-
 }
 
 int main(int argc, char** argv) {
