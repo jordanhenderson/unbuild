@@ -305,6 +305,9 @@ int produce_output(output& file, int operation, build_flags* f) {
 		command += file.compiled_files + sep;
 		command += file.extra_files + sep;
 		command += f->linker_flags + sep;
+		if(COMPILER == COMPILER_GCC && !FLAGS.arch.empty()) {
+			command += "-m" + FLAGS.arch + sep;
+		}
 		command += OUTPUT_LINK_OUTPUT[COMPILER];
 		command += file.output_name;
 	} else {
