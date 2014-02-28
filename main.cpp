@@ -235,7 +235,7 @@ char* load_project(const char* path) {
 	FILE* fp = NULL;
 	size_t read = 0;
 	if (!(fp = fopen(path, "r"))) {
-		fprintf(stderr, "Error: Could not open project.xml.");
+		fprintf(stderr, "Error: Could not open %s.\n", path);
 		return NULL;
 	}
 
@@ -569,16 +569,25 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 
 		size_t pos = project.find_last_of('/');
 		if (pos == string::npos) pos = 0;
-		bool is_file = endsWith(project, ".xml");
+		struct stat dependency;
+		if(stat(project.c_str(), &dependency) < 0) {
+			printf("Error: %s could not be opened.\n", project.c_str());
+			return 1; //Could not stat input file.
+		}
+		int is_file = !((dependency.st_mode & S_IFDIR) == S_IFDIR);
 		//Is a file, has a path. 
 		string path_str = is_file && pos ? 
 			project.substr(0, pos + 1) : project;
 		//Just the project file name.
-		string project_file = is_file && pos ?
-			project.substr(pos, project.size()) : is_file ? project : "project.xml";
+		string project_file;
+		if(pos && is_file) 
+			project_file = project.substr(pos + 1, project.size());
+		else if(is_file) project_file = project;
+		else project_file = "project.xml";
 
 		//TODO: Prevent stack overflow (project including same project).
-		chdir(path_str.c_str());
+		//If there is a '/' in the project, we need to change directories.
+		if(pos) chdir(path_str.c_str());
 		char* root_project = NULL;
 		if ((root_project = load_project(project_file.c_str()))) {
 			//Root project loaded. Parse xml.
@@ -587,7 +596,7 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 				doc.parse<0>(root_project);
 			}
 			catch (rapidxml::parse_error ex) {
-				fprintf(stderr, "Error: Unable to parse dependent project.");
+				fprintf(stderr, "Error: Unable to parse dependent project.\n");
 				return 1;
 			}
 			xml_node<>* p = doc.first_node("project");
@@ -606,6 +615,7 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 			delete[] root_project;
 		}
 		else {
+		      fprintf(stderr, "Error: Loading project: %s failed.\n", project.c_str());
 			return 1;
 		}
 		chdir(path);
@@ -664,7 +674,7 @@ int main(int argc, char** argv) {
 	const char* path = NULL;
 	if (argc == 1) {
 bad_format:
-		fprintf(stderr, "Usage: unbuild compiler [path [options]]");
+		fprintf(stderr, "Usage: unbuild compiler [path [options]]\n");
 		return 1;
 	}
 
@@ -718,7 +728,7 @@ bad_format:
 			doc.parse<0>(root_project);
 		}
 		catch (rapidxml::parse_error ex) {
-			fprintf(stderr, "Error: Unable to parse project.");
+			fprintf(stderr, "Error: Unable to parse project.\n");
 			return 3;
 		}
 		xml_node<>* p = doc.first_node("project");
