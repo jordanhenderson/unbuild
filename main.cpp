@@ -579,6 +579,12 @@ int step_build_dependencies(xml_node<>* project, string& d_outputs, string& d_in
 		if (link != NULL && strcmp(link->value(), "true") == 0) {
 			do_link = true;
 		}
+		
+		xml_attribute<>* include = child->first_attribute("include");
+		bool do_include = false;
+		if(include != NULL && strcmp(include->value(), "true") == 0) {
+			do_include = true;
+		}
 
 		string project = string(child->value(), child->value_size());
 		struct stat dependency;
@@ -631,6 +637,9 @@ int step_build_dependencies(xml_node<>* project, string& d_outputs, string& d_in
 				//If dependency should be linked, add it to the dependency outputs.
 				if (do_link) {
 					d_outputs += path_str + PATH_SEP + output_file + " ";
+				}
+				
+				if (do_link || do_include) {
 					//Send expanded includes to projects that depend on this one.
 					build_includes(p, path_str + "/", d_includes);	
 				}
