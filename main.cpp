@@ -361,7 +361,7 @@ string make_output_filename(string& immdir, string& filename) {
 	return immdir + PATH_SEP + filename.substr(spos, filename.find_last_of('.')) + DEFAULT_OUTPUT_SUFFIX;
 }
 
-string build_compiler_string(xml_node<>* node, char prefix='\0', int escape=0, int useflag=1) {
+string build_compiler_string(xml_node<>* node, char prefix='\0', int escape=0, int useflag=1, const string& s_prefix="") {
 	size_t pos = 0;
 	size_t size = node->value_size();
 	char* v = node->value();
@@ -376,7 +376,9 @@ string build_compiler_string(xml_node<>* node, char prefix='\0', int escape=0, i
 			if (i - pos > 0) {
 				if (useflag) built += COMPILER_FLAG[COMPILER];
 				if (prefix != '\0') built += prefix;
-				built += (escape ? "\"" : "") + string(node->value() + pos, i - pos) + (escape ? "\" " : " ");
+				built += (escape ? "\"" : "") + s_prefix + 
+					string(node->value() + pos, i - pos) + 
+					(escape ? "\" " : " ");
 				pos = i + 1;
 			}
 			else {
@@ -546,10 +548,23 @@ void step_add_flags(xml_node<>* project, build_flags& flags) {
 	}
 }
 
+void build_includes(xml_node<>* project, const string& dir, string& output) {
+	//Includes: Split by ; then produce separate include flags.
+	for (xml_node<> *child = project->first_node("include");
+		child; child = child->next_sibling("include")) {
+
+		if(!check_os(child))
+			continue;
+
+		output += build_compiler_string(child, 'I', 1, 1, dir);
+	
+	}
+}
+
 //Forward define build_project to allow dependent projects to call it.
 int build_project(xml_node<>* project);
 
-int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
+int step_build_dependencies(xml_node<>* project, string& d_outputs, string& d_includes) {
 	char* path = NULL;
 	int error = 0;
 	for (xml_node<> *child = project->first_node("depends");
@@ -566,24 +581,32 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 		}
 
 		string project = string(child->value(), child->value_size());
-
-		size_t pos = project.find_last_of('/');
-		if (pos == string::npos) pos = 0;
 		struct stat dependency;
 		if(stat(project.c_str(), &dependency) < 0) {
 			printf("Error: %s could not be opened.\n", project.c_str());
 			return 1; //Could not stat input file.
 		}
 		int is_file = !((dependency.st_mode & S_IFDIR) == S_IFDIR);
-		//Is a file, has a path. 
-		string path_str = is_file && pos ? 
-			project.substr(0, pos + 1) : project;
-		//Just the project file name.
+		//Determine if the project is in a different directory. (contains /)
+		size_t pos = project.find_last_of('/');
+		if (pos == string::npos) pos = 0;
+		
+		//Calculate both the path and filename of the project.
+		string path_str;
 		string project_file;
-		if(pos && is_file) 
+		//Set path_str to the path of the project file/project.
+		if(is_file && pos) {
+			path_str = project.substr(0, pos + 1);
 			project_file = project.substr(pos + 1, project.size());
-		else if(is_file) project_file = project;
-		else project_file = "project.xml";
+		}
+		else if(is_file) {
+			path_str = "";
+			project_file = project;
+		}
+		else {
+			path_str = project;
+			project_file = "project.xml";
+		}
 
 		//TODO: Prevent stack overflow (project including same project).
 		//If there is a '/' in the project, we need to change directories.
@@ -601,16 +624,24 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 			}
 			xml_node<>* p = doc.first_node("project");
 			if (p != NULL) {
+				//We have loaded a valid project.
+				//Send the project information (dependencies etc) up the chain.
 				xml_node<>* output = p->first_node("output");
 				string output_file = get_output_file(output);
 				//If dependency should be linked, add it to the dependency outputs.
-				if (do_link) dependency_outputs += path_str + PATH_SEP + output_file + " ";
+				if (do_link) {
+					d_outputs += path_str + PATH_SEP + output_file + " ";
+					//Send expanded includes to projects that depend on this one.
+					build_includes(p, path_str + "/", d_includes);	
+				}
+
 				FILE* ofile;
 				if ((ofile = fopen(output_file.c_str(), "r")) != NULL) {
 					fclose(ofile);
-				} else 
-					if ((error = build_project(p)) != 0)
-						return error;
+				} else {
+					//Build the project.
+					error = build_project(p);
+				}
 			}
 			delete[] root_project;
 		}
@@ -627,10 +658,12 @@ int step_build_dependencies(xml_node<>* project, string& dependency_outputs) {
 
 
 int build_project(xml_node<>* project) {
-	string dependency_outputs;
+	string d_outputs;
+	string d_includes;
 	int error = 0;
 
-	if ((error = step_build_dependencies(project, dependency_outputs)) != 0) return error;
+	if ((error = step_build_dependencies(
+					project, d_outputs, d_includes)) != 0) return error;
 
 	//Run any prebuild commands before commencing the build.
 	for (xml_node<>* child = project->first_node("prebuild");
@@ -649,22 +682,14 @@ int build_project(xml_node<>* project) {
 	string compiled_files = "";
 
 	base_file.flags = &flags;
-	//Includes: Split by ; then produce separate include flags.
-	for (xml_node<> *child = project->first_node("include");
-		child; child = child->next_sibling("include")) {
-
-		if(!check_os(child))
-			continue;
-
-		base_file.includes += build_compiler_string(child, 'I', 1);
-	
-	}
+	base_file.includes = d_includes;
+	build_includes(project, "", base_file.includes);
 
 	step_add_flags(project, flags);
 
 	if ((error = step_compile_files(project, compiled_files, base_file) != 0)) return error;
 
-	compiled_files += dependency_outputs;
+	compiled_files += d_outputs;
 	step_build_output(project, compiled_files, &flags);
 	
 	return error;
