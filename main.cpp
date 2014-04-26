@@ -7,11 +7,12 @@
 #endif
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <stdlib.h>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <errno.h>
 #include "rapidxml.hpp"
 
 using namespace std;
@@ -101,6 +102,42 @@ struct flags {
 
 static flags FLAGS;
 
+
+enum {
+	FIRST = 1,
+	FACTOR = 2
+};
+
+char* pgetcwd(void) {
+	void *buf;
+	void *newbuf;
+	size_t size;
+
+#ifdef PATH_MAX
+	size = PATH_MAX;
+#else
+	size = 255;
+#endif
+	if ((buf = malloc(size)) == NULL) {
+		errno = ENOMEM;
+		return NULL;
+	}
+	while (getcwd((char*)buf, size) == NULL) {
+		if (errno != ERANGE) {
+			free(buf);
+			return NULL;
+		}
+		if ((newbuf = realloc(buf, size * 2)) == NULL) {
+			free(buf);
+			errno = ENOMEM;
+			return NULL;
+		}
+		buf = newbuf;
+		size *= 2;
+	}
+	return (char*) buf;
+}
+
 bool endsWith(const string &a, const string &b) {
 	if (a.length() >= b.length()) {
 		return (a.compare(a.length() - b.length(), b.length(), b) == 0);
@@ -177,7 +214,6 @@ const string& macro_replace(const string& key) {
 
 	else return EMPTY_STR;
 }
-
 
 /**
  * @brief parse_string identifies and replaces $() macros with the appropriate
@@ -573,7 +609,7 @@ int step_build_dependencies(xml_node<>* project, string& d_outputs, string& d_in
 		if(!check_os(child))
 			continue;
 
-		path = getcwd(NULL, 0);
+		path = pgetcwd();
 		xml_attribute<>* link = child->first_attribute("link");
 		bool do_link = false;
 		if (link != NULL && strcmp(link->value(), "true") == 0) {
@@ -705,7 +741,7 @@ int build_project(xml_node<>* project) {
 }
 
 int main(int argc, char** argv) {
-	const char* path = NULL;
+	char* path = NULL;
 	if (argc == 1) {
 bad_format:
 		fprintf(stderr, "Usage: unbuild compiler [path [options]]\n");
@@ -740,7 +776,7 @@ bad_format:
 
 	if (argc == 2) {
 		//Default path, cwd.
-		path = getcwd(NULL, 0);
+		path = pgetcwd();
 	}
 	else
 		path = argv[2];
@@ -750,7 +786,7 @@ bad_format:
 	if (COMPILER == -1) goto bad_format;
 
 	string path_str = string(path);
-	if(argc == 2) free((void*)path);
+	if(argc == 2) free(path);
 
 	path_str += PATH_SEP "project.xml";
 	
