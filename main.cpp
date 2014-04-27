@@ -538,7 +538,15 @@ void add_flags(build_flags& flags, xml_node<>* child, char prefix, int quote) {
 		vector<string> exts;
 		tokenize(ext_str, exts, ";", true);
 		for(auto ext: exts) {
-			flags.ext_flags.insert(make_pair(ext, flag_str)); 
+			//Combine any existing flags for this extension.
+			string combined_flags = "";
+			auto it = flags.ext_flags.find(ext);
+			if(it != flags.ext_flags.end()) {
+				combined_flags = it->second;
+				flags.ext_flags.erase(it);
+			}
+			combined_flags += flag_str;
+			flags.ext_flags.insert(make_pair(ext, combined_flags)); 
 		}
 		
 	} else 
